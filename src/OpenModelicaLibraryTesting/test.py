@@ -22,6 +22,11 @@ import shared
 
 import signal
 
+from runCommand import runCommand
+from runScript import runScript
+from rmtree import rmtree
+from testHelloWorld import testHelloWorld
+
 parser = argparse.ArgumentParser(description='OpenModelica library testing tool')
 parser.add_argument('configs', nargs='*')
 parser.add_argument('--branch', default='master')
@@ -73,79 +78,12 @@ msysEnvironment = args.msysEnvironment
 exeExt = ".exe" if isWin else ""
 customTimeout = int(args.timeout)
 
-def rmtree(f):
-  try:
-    shutil.rmtree(f)
-  except UnicodeDecodeError:
-    # Yes, we can get UnicodeDecodeError because shutil.rmtree is poorly implemented
-    subprocess.check_call(["rm", "-rf", f], stderr=subprocess.STDOUT)
 
 def print_linenum(signum, frame):
   print("Currently at line", frame.f_lineno)
 
 if not isWin:
   signal.signal(signal.SIGUSR1, print_linenum)
-
-def runCommand(cmd, prefix, timeout):
-  process = [None]
-  def target():
-    with open(os.devnull, 'w')  as FNULL:
-      if isWin:
-        process[0] = subprocess.Popen(cmd, shell=True, stdin=FNULL, stdout=FNULL, stderr=FNULL)
-      else:
-        process[0] = subprocess.Popen(cmd, shell=True, stdin=FNULL, stdout=FNULL, stderr=FNULL, preexec_fn=os.setpgrp)
-
-      while process[0].poll() is None:
-        print("process running... pid: " + str(process[0].pid) + " timeout: " + str(timeout) + " cmd: " + cmd.split('>',1)[0])
-        process[0].communicate(1)
-        process[0].wait(1)
-
-
-  thread = threading.Thread(target=target)
-  thread.start()
-  thread.join(timeout)
-
-  gotTimeout = False
-
-  if thread.is_alive():
-    gotTimeout = True
-    print("process SIGTERM... pid: " + str(process[0].pid))
-    if isWin:
-      os.kill(process[0].pid, signal.SIGTERM)
-    else:
-      os.kill(-process[0].pid, signal.SIGTERM)
-    thread.join(min(10, timeout))
-    if thread.is_alive():
-      print("process SIGKILL... pid: " + str(process[0].pid))
-      if isWin:
-        os.kill(process[0].pid, signal.SIGKILL)
-      else:
-        os.kill(-process[0].pid, signal.SIGKILL)
-    thread.join()
-
-  if clean:
-    print("---> try clean")
-    try:
-      lines = open("%s.tmpfiles" % prefix).readlines()
-    except:
-      lines = []
-    for suffix in [".so",".mos","",".o",".h",".c",".cpp","_info.json",".xml",".tmpfiles",".pipe",".tmpfiles",".libs",".log"]:
-      for f in glob.glob(prefix+suffix):
-        lines.append(f)
-      for f in glob.glob("OM"+prefix+suffix):
-        lines.append(f)
-    for line in lines:
-      f = line.strip()
-      if os.path.isdir(f):
-        rmtree(f)
-      elif os.path.exists(f):
-        os.unlink(f)
-    try:
-      rmtree(prefix)
-    except OSError:
-      pass
-
-  return 1 if gotTimeout else process[0].returncode
 
 try:
   subprocess.check_output(["python", "testmodel.py", "--help"], stderr=subprocess.STDOUT)
@@ -295,21 +233,7 @@ defaultCustomCommands = []
 if extraflags:
   defaultCustomCommands += [extraflags]
 
-def testHelloWorld(cmd):
-  with open("HelloWorld.mos") as fin:
-    helloWorldContents = fin.read()
-  try:
-    os.unlink("HelloWorld"+exeExt)
-  except OSError:
-    pass
-  open("HelloWorld.cmd.mos","w").write(cmd + "\n" + helloWorldContents)
-  try:
-    out=subprocess.check_output(omc_cmd + ["HelloWorld.cmd.mos"], stderr=subprocess.STDOUT)
-    if os.path.exists("HelloWorld"+exeExt) and not "Error:" in out.decode():
-      return True
-  except subprocess.CalledProcessError as e:
-    pass
-  return False
+
 
 for cmd in [
   'setCommandLineOptions("-d=nogen");',
@@ -674,52 +598,6 @@ if errorOccurred:
 print("Created .conf.json files")
 sys.stdout.flush()
 
-def runScript(c, timeout, memoryLimit, verbose):
-  j = os.path.normpath("files/%s.stat.json" % c)
-  try:
-    os.remove(j)
-  except:
-    pass
-  start=monotonic()
-  # runCommand("%s %s %s.mos" % (omc_exe, single_thread, c), prefix=c, timeout=timeout)
-  if verbose:
-    print("Starting test: %s" % c)
-    sys.stdout.flush()
-
-  if isWin:
-    res_cmd = runCommand("python testmodel.py --win --msysEnvironment=%s --libraries=%s %s --ompython_omhome=%s %s.conf.json > files/%s.cmdout 2>&1" % (msysEnvironment, librariespath, ("--docker %s --dockerExtraArgs '%s'" % (docker, " ".join(dockerExtraArgs))) if docker else "", ompython_omhome, c, c), prefix=c, timeout=timeout)
-  else:
-    res_cmd = runCommand("ulimit -v %d; ./testmodel.py --libraries=%s %s --ompython_omhome=%s %s.conf.json > files/%s.cmdout 2>&1" % (memoryLimit, librariespath, ("--docker %s --dockerExtraArgs '%s'" % (docker, " ".join(dockerExtraArgs))) if docker else "", ompython_omhome, c, c), prefix=c, timeout=timeout)
-
-  if res_cmd != 0:
-    print("files/%s.err" % c)
-    with open(os.path.normpath("files/%s.err" % c), "a+") as errfile:
-      errfile.write("Failed to read output from testmodel.py, exit status != 0:\n")
-      try:
-        with open(os.path.normpath("files/%s.cmdout" % c)) as cmdout:
-          errfile.write(cmdout.read())
-      except IOError:
-        pass
-      except OSError:
-        pass
-
-  if clean:
-    try:
-      os.unlink(os.path.normpath("files/%s.cmdout" % c))
-    except OSError:
-      pass
-
-  execTime=monotonic()-start
-  assert(execTime >= 0.0)
-  try:
-    data=json.load(open(j))
-  except:
-    data = {"phase":0}
-  data["exectime"] = execTime
-  json.dump(data, open(j,"w"))
-  if verbose:
-    print("Finished test: %s - %d[s]" % (c, execTime))
-    sys.stdout.flush()
 
 def expectedExec(c):
   (model,lib,libName,name,data) = c
