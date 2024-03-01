@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "OpenModelicaLibraryTesting"
+version = "1.0.0"
+authors = [
+    {name = "Open Source Modelica Consortium "}
+]
+description = "Test script for OpenModelica Compiler (omc) and open-source Modelica Libraries."
+readme = "README.md"
+keywords = ["modelica", "openmodelica", "continuous-integration"]
+license = {file = "OSMC-License.txt"}
+dependencies = [
+  "datetime",
+  "matplotlib",
+  "monotonic",
+  "natsort",
+  "joblib",
+  "ompython",
+  "simplejson",
+  "psutil",
+]
