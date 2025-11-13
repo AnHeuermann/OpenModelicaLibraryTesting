@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from OMPython import OMCSessionZMQ
-import pyparsing
+from OMPython import OMCSessionZMQ, pyparsing
 import argparse
 import glob
 import json
@@ -33,12 +32,12 @@ os.mkdir("converted-libraries")
 os.mkdir("converted-libraries/.openmodelica")
 os.mkdir("converted-libraries/.openmodelica/libraries")
 
-def omcAssert(omc: OMCSessionZMQ, cmd: str, extra: str = ""):
+def omcAssert(omc, cmd, extra=""):
   res = omc.sendExpression(cmd)
   if not res:
     raise Exception(cmd + "\n" + extra + "\n" + (omc.sendExpression("getErrorString()") or ""))
 
-def omcSendExpression(omc: OMCSessionZMQ, cmd: str, extra: str = ""):
+def omcSendExpression(omc, cmd, extra=""):
   try:
     return omc.sendExpression(cmd)
   except pyparsing.ParseException as e:
